@@ -1,0 +1,364 @@
+
+# installment and loading of necessary libraries
+if(!require(dbscan)) install.packages("dbscan")
+if(!require(class)) install.packages("class")
+if(!require(naivebayes)) install.packages("naivebayes")
+if(!require(e1071)) install.packages("e1071")
+if(!require(ranger)) install.packages("ranger")
+library(dbscan)
+library(class)
+library(naivebayes)
+library(e1071)
+library(ranger)
+
+# 1. INTRODUCTION 
+
+# This project focuses on a subset of machine learning: The subdomain called *supervised learning* focuses on training a machine to learn from prior examples. When the concept to be learned is a set of *categories*, the task is called **classification**. 
+
+# From identifying different types of species, predicting the fraudulent transactions, or detecting whether an image contains a number between 1 to 10, classification tasks are diverse yet common.
+
+### a. Data Exploration
+
+# The research problem is this project deals with the classification of the dry beans into seven different classes. The dataset for the models to be developed for this classification is taken from UCI Machine Learning Repository: ["Dry Bean Dataset"](https://archive-beta.ics.uci.edu/ml/datasets/602). 
+
+# Images of 13,611 grains of 7 different registered dry beans were taken with a high-resolution camera. A total of 16 features; 12 dimensions and 4 shape forms, were obtained from the grains.
+
+# Loading `Dry_Bean_Dataset.csv`:
+beans <- read.csv("https://github.com/ulcaymurat/data/raw/main/Dry_Bean_Dataset.csv")
+
+# Displaying the structure of the dataset:
+str(beans)
+
+# The dataset has one factor label variable: `Class`. Its values are the types of beans and shown in the output of the code below:
+
+# Printing the levels of the factor variable: Class
+levels(beans$Class)
+
+# These seven classes (types) of beans have 16 features specified below:
+  
+# 1. Area (A): The area of a bean zone and the number of pixels within its boundaries.
+# 2. Perimeter (P): Bean circumference is defined as the length of its border.
+# 3. Major axis length (L): The distance between the ends of the longest line that can be drawn from a bean.
+# 4. Minor axis length (l): The longest line that can be drawn from the bean while standing perpendicular to the main axis.
+# 5. Aspect ratio (K): Defines the relationship between L and l.
+# 6. Eccentricity (Ec): Eccentricity of the ellipse having the same moments as the region.
+# 7. Convex area (C): Number of pixels in the smallest convex polygon that can contain the area of a bean seed.
+# 8. Equivalent diameter (Ed): The diameter of a circle having the same area as a bean seed area.
+# 9. Extent (Ex): The ratio of the pixels in the bounding box to the bean area.
+# 10. Solidity (S): Also known as convexity. The ratio of the pixels in the convex shell to those found in beans.
+# 11. Roundness (R): Calculated with the following formula: (4piA)/(P^2)
+# 12. Compactness (CO): Measures the roundness of an object: Ed/L
+# 13. ShapeFactor1 (SF1)
+# 14. ShapeFactor2 (SF2)
+# 15. ShapeFactor3 (SF3)
+# 16. ShapeFactor4 (SF4)
+
+### b. Data Preparation
+
+#### i. Missing Values:
+
+# `beans` dataset has no missing values:
+
+# Checking if data has any missing values:
+sum(is.na(beans))
+
+# For the remainder of the paper, features and label variable are separated for analysis into dataset `X` and dataset `y` respectively.
+
+# Dividing `beans` dataset into features (X) and labels (y) datasets:
+X <- beans[1:16]
+y <- as.data.frame(beans[17])
+
+#### ii. Normalization
+
+# Data preprocessing comes after cleaning up the data and after doing some exploratory analysis to understand dataset. After understanding the dataset, some idea about how to model the data is generally formed. Machine learning models in R may require transformation of the variables in the dataset.
+
+# Data normalization, also called "feature scaling", is an important step in data preprocessing pipeline. Although it is not always needed, most of the times it is beneficial to any machine learning model. Decision trees, for example, can deal quite well with features having dissimilar and disproportionate scales, but this is not the case for the majority of the machine learning models used in this paper, such as Support Vector Machines, K-nearest neighbors, Logistic Regression, Neural Networks. It is therefore a good practice to consider normalizing data before passing it on to other components in a machine learning pipeline. 
+
+# We use Z-score normalization which is more robust to outliers but produces normalized values in different scales.
+
+# Printing the `summary` of the features dataset:
+summary(X)
+
+# Calculating and printing the variances of the features dataset variables:
+diag(var(X))
+
+# We can see from the code outputs above that the scale of means and variances of the features are so different calling for a normalization in the data. 
+
+# Normalizing (scaling) the features dataset (X):
+X_norm <- as.data.frame(scale(X))
+
+# Calculating and printing the summary statistics of the normalized features dataset 
+# (X_norm):
+summary(X_norm)
+
+# Calculating and printing the variances of the normalized features dataset (X_norm):
+diag(var(X_norm))
+```
+
+# As can be seen from the code outputs above, after the normalization operation, every feature in the `X` dataset is standardized with a mean of "zero" and a variance (and also standard deviation) of "one".
+
+#### iii. Anomaly Detection:
+
+# Dealing with anomalous data points (also known as outliers) is an important step in the data preparation phase. If not properly handled, outliers could skew the analysis and produce misleading conclusions. 
+
+# The Local Outlier Factor (LOF) which is an algorithm that measures the local deviation of a data point relative to its neighbors is used in this paper. Outliers are defined as data points with substantially lower density than their neighbors. Each observation receives an LOF score that indicates whether it is deemed to be a regular data point, an inlier or an outlier.
+
+# Creating a copy of `X_norm` dataset: 
+X_norm1 <- X_norm
+
+# Computing the LOF anomaly score for each data point in `X_norm1` dataset 
+# using the 7 nearest neighbors and adding it to `X_norm1`:
+X_norm1$lof_score <- lof(X_norm, k = 7)
+
+
+# In order to detect the outlier LOF scores, a boxplot can help visually:
+  
+# Plotting the box_plot of `lof_score` column of `X_norm1` to detect outlier lof scores visually:
+boxplot(X_norm1$lof_score)
+
+# Although the process of detecting outliers requires subjective evaluation at this point, it seems that we can label four datapoints from the dataset as outliers and we can eliminate them from the dataset:
+  
+# Creating a mask for the locations of the outliers (i.e. the datapoints 
+# having the four highest LOF scores):
+outlier_mask <- order(X_norm1$lof_score, decreasing = TRUE)[1:4]
+
+# Excluding the outliers from both features dataset (X_norm) and label dataset (y):
+X_norm <- X_norm[-outlier_mask,]
+y <- y[-outlier_mask,]
+
+#### iv. Training and Test Datasets:
+
+# Setting the seed:
+set.seed(123)
+
+# Creating a mask from `X_norm` for the `training` dataset:
+mask = sort(sample(nrow(X_norm), nrow(X_norm)*.7))
+
+# Extracting `training` dataset from `X_norm`:
+X_train <- X_norm[mask,]
+
+# Extracting `training` dataset from `y`:
+y_train <- y[mask]
+
+# Extracting `test` dataset from `X_norm`:
+X_test <- X_norm[-mask,]
+
+# Extracting `test` dataset from `y`:
+y_test <- y[-mask]
+
+# Creating a dataframe by combining X_train and y_train:
+training <- cbind(X_train,y_train)
+
+## 2. METHODS
+
+# Classification models are a method of high importance used in various fields. In class determination, classification models are used to determine which class the data belongs to. The classification model is a model that works by making predictions. The purpose of the classification is to make use of the common characteristics of the data to parse the data in question. 
+
+### a. Algorithms
+
+# In this paper, in order to classify beans according to their characteristics, models are developed using the algorithms below:  
+  
+# > k- NN (K Nearest Neighbors),  
+# > NB (Naive Bayes),  
+# > SVM (Support Vector Machine), 
+# > DT (Decision Tree),   
+#> RF (Random Forest),  
+
+# The model development is made on the `training` set and model evaluations is made on the `X_test` datasets.
+
+### b. Model Evaluation
+
+# The **confusion matrix** for each model is prepared and **accuracy** measure is used to evaluate the models created
+
+#### i. Confusion Matrix:
+
+# Confusion matrices for each class of beans are below:
+
+download.file(url = "http://veribilim.online/harvardx/confusion.png",
+              destfile = "confusion.png",
+              mode = 'wb')
+knitr::include_graphics(path = "confusion.png")
+
+# In these matrices:
+  
+# > **tp:** True Positive  
+# > **tn:** True Negative  
+# > **fp:** False Positive  
+# > **fn:** False Negative  
+
+#### ii. Performance Measure - Accuracy:
+
+# Each models' predictive ability of each class is evaluated with their **accuracy** metrics:
+
+# > Accuracy = (tp + tn) / (tp + fp + tn + fn)
+
+## 3. ANALYSIS
+
+### a. k-NN (K Nearest Neighbors)
+
+# Applying the k-NN algorithm for classification:
+beans_pred_knn <- knn(        
+train = X_train, #training dataset is specified
+test = X_test, #test dataset is specified
+cl = y_train #labels for the training data
+)
+
+# Calculating and printing out the `confusion_matrix` for knn:
+confusion_knn <- table(y_test,beans_pred_knn)
+confusion_knn
+
+### b. NB (Naive Bayes)
+
+# Changing the column name of `y_train` in `training_NB`dataframe:
+names(training)[names(training) == "y_train"] <- "Class"
+
+# Applying NB algorithm for classification:
+model_NB <- 
+naive_bayes(
+Class ~ . ,#formula: Class depending on the other features on the 
+#`training_NB` dataframe
+data = training, #dataframe for NB algorithm
+laplace = 1 #using the laplace correction to prevent some potential 
+#outcomes from being predicted to be impossible.
+)
+
+# predicting the `y_test` labels using `model_NB`:
+beans_pred_nb <- predict(model_NB, X_test)
+
+# Calculating and printing out the `confusion_matrix` for NB:
+confusion_nb <- table(y_test,beans_pred_nb)
+confusion_nb
+
+### c. SVM (Support Vector Machines)
+
+# Applying SVM algorithm for classification:
+model_SVM <- 
+svm(
+Class ~ . ,#formula: Class depending on the other features on the `training` dataframe
+data = training, #dataframe for algorithm
+type = "C-classification", #for LR
+kernel = "linear", # to build a linear SVM classifier
+scale = FALSE #our data is already scaled (normalized)
+)
+
+# predicting the `y_test` labels using `model_SVM`:
+beans_pred_svm <- predict(model_SVM, X_test)
+
+# Calculating and printing out the `confusion_matrix` for SVM:
+confusion_svm <- table(y_test,beans_pred_svm)
+confusion_svm
+
+### d. RF (Random Forest)    
+
+# Applying RF algorithm for classification:
+model_RF <- 
+ranger(
+Class ~ . ,#formula: Class depending on the other features on the `training` dataframe
+data = training, #dataframe for algorithm
+num.trees = 1000, #number of trees in the random forest model
+respect.unordered.factors = "order", 
+seed = 1 #for reproducible results
+)
+
+# predicting the `y_test` labels using `model_RF`:
+beans_pred_rf <- predict(model_RF, X_test)
+
+# Calculating and printing out the `confusion_matrix` for RF:
+confusion_rf <- table(y_test,beans_pred_rf$predictions)
+confusion_rf
+
+## 4. RESULTS
+
+The evaluations and comparisions of the models are performed below with the computations of the accuracy metrics:
+
+# Defining a function to form a named vector of accuracy metric 
+# of each model for the prediction of the classes:
+model_accuracy <- function(x) {
+
+# Calculating "Accuracy" for the prediction of "Barbunya" class:
+ACC_Barbunya = 
+(x[1:1] + sum(x[2:7,2:7])) / length(y_test)
+
+# Calculating "Accuracy" for the prediction of "Bombay" class:
+ACC_Bombay = 
+(x[2:2] + sum(x[3:7,3:7]) + sum(x[3:7,1])+ x[1:1]) / length(y_test)
+
+# Calculating "Accuracy" for the prediction of "Cali" class:
+ACC_Cali = 
+(x[3:3] + sum(x[4:7,4:7]) + sum(x[4:7,1:2])+ sum(x[1:2,1:2])) / length(y_test)
+
+# Calculating "Accuracy" for the prediction of "Dermason" class:
+ACC_Dermason = 
+(x[4:4] + sum(x[5:7,5:7]) + sum(x[5:7,1:3])+ sum(x[1:3,1:3])) / length(y_test)
+
+# Calculating "Accuracy" for the prediction of "Horoz" class:
+ACC_Horoz = 
+(x[5:5] + sum(x[6:7,6:7]) + sum(x[6:7,1:4])+ sum(x[1:4,1:4])) / length(y_test)
+
+# Calculating "Accuracy" for the prediction of "Seker" class:
+ACC_Seker = 
+(x[6:6] + x[7:7] + sum(x[7:7,1:5])+ sum(x[1:5,1:5])) / length(y_test)
+
+# Calculating "Accuracy" for the prediction of "Sira" class:
+ACC_Sira = 
+(x[7:7] + sum(x[1:6,1:6])) / length(y_test)
+
+# Storing the accuracy results to a vector:
+accuracy <- c(
+ACC_Barbunya,
+ACC_Bombay,
+ACC_Cali,
+ACC_Dermason,
+ACC_Horoz,
+ACC_Seker,
+ACC_Sira
+)
+
+# Naming the vector elements accordingly:
+names(accuracy) <- c("Barbunya","Bombay","Cali",
+"Dermason","Horoz","Seker","Sira")
+
+return(accuracy)
+}
+
+# Calculating the accuracy scores of 
+# k-NN model for each class and storing them in a named vector:
+accuracy_knn <- model_accuracy(confusion_knn)
+
+# Calculating the accuracy scores of 
+# Naive Bayes model for each class and storing them in a named vector:
+accuracy_nb <- model_accuracy(confusion_nb)
+
+# Calculating the accuracy scores of 
+# Support Vector Machines model for each class and storing them in a named vector:
+accuracy_svm <- model_accuracy(confusion_svm)
+
+# Calculating the accuracy scores of 
+# Random Forest model for each class and storing them in a named vector:
+accuracy_rf <- model_accuracy(confusion_rf)
+
+# Creating a dataframe from the accuracy scores:
+accuracy_model_df <- as.data.frame(
+rbind(accuracy_knn,accuracy_nb,accuracy_svm,accuracy_rf), 
+row.names=c("KNN","Naive Bayes","Support Vector Machines","Random Forest"))
+
+# Adding a column showing the average accuracy scores over the classes for each model:
+accuracy_model_df["Average_Model"] <- apply(accuracy_model_df, 1,mean)
+
+# Printing the `accuracy_model_df` dataframe:
+accuracy_model_df
+
+
+## CONCLUSION, LIMITATIONS AND SUGGESTIONS FOR FURTHER ANALYSIS  
+
+# From the summary of the accuracy scores shown above, It can be seen that, the accuracy scores of different models used are very close to each other around 83%. it's somehow inconclusive as to which model has a superior performance over others.
+
+# In this paper, the model evaluation is made solely based on the accuracy score. However, depending on the aim of the model and the expectations of the end user, the other performance metrics can also be included for further analysis. 
+
+# Full set of performance metrics are presented below for reference:
+download.file(url = "http://veribilim.online/harvardx/performance.png",
+              destfile = "performance.png",
+              mode = 'wb')
+knitr::include_graphics(path = "performance.png")
+
+
+# Moreover, hyperparameter tuning techniques are not extensively used in this study. By explicitly including these techniques, the performance of the models may be increased and other insights may be extracted from the analyses. 
